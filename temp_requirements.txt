@@ -1,0 +1,18 @@
+# Data Processing & Analysis
+matplotlib
+numpy
+pandas
+
+# RAG Dependencies
+langchain
+langchain-openai
+chromadb
+sentence-transformers
+
+# Technical Analysis
+yfinance
+ta
+
+# Utilities
+python-dotenv>=0.19.0
+requests>=2.26.0
