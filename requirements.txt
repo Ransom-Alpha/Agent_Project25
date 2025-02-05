@@ -1,0 +1,23 @@
+# GUI Dependencies
+tkinter
+
+# Data Processing & Analysis
+matplotlib
+numpy
+pandas
+
+# Database
+sqlite3
+
+# RAG Dependencies
+langchain
+chromadb
+sentence-transformers
+
+# Technical Analysis
+yfinance
+ta
+
+# Utilities
+python-dotenv>=0.19.0
+requests>=2.26.0

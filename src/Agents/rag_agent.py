@@ -77,11 +77,11 @@ class RAGAgent:
                 # Get relevant news articles
                 cursor = self.conn.cursor()
                 cursor.execute("""
-            SELECT a.title, a.summary 
-            FROM Articles a
-            WHERE a.time_published >= datetime('now', '-7 days')
-            ORDER BY a.time_published DESC 
-            LIMIT 5
+                    SELECT a.title, a.summary 
+                    FROM Articles a
+                    WHERE a.time_published >= datetime('now', '-7 days')
+                    ORDER BY a.time_published DESC 
+                    LIMIT 5
                 """)
                 articles = cursor.fetchall()
                 if articles:
@@ -89,15 +89,15 @@ class RAGAgent:
                                   for title, summary in articles])
                 
                 # Extract potential ticker from query
-                ticker_match = re.search(r'\(([^)]+)\)', query)
+                ticker_match = re.search(r'\b[A-Z]{1,5}\b', query)  # Match 1-5 uppercase letters
                 if ticker_match:
-                    ticker = ticker_match.group(1).upper()
+                    ticker = ticker_match.group(0)
                     
                     # Add fundamentals context
                     cursor.execute("""
-                    SELECT sector, recommendationKey, targetMeanPrice
-                    FROM Fundamentals 
-                    WHERE Ticker = ? AND date = (SELECT MAX(date) FROM Fundamentals)
+                        SELECT sector, recommendationKey, targetMeanPrice
+                        FROM Fundamentals 
+                        WHERE Ticker = ? AND date = (SELECT MAX(date) FROM Fundamentals)
                     """, (ticker,))
                     fundamentals = cursor.fetchone()
                     if fundamentals:
@@ -117,7 +117,6 @@ class RAGAgent:
         except Exception as e:
             return f"⚠️ Error: {str(e)}"
 
-    # --- HELPER FUNCTIONS ---
     def fetch_price_data(self, query):
         cursor = self.conn.cursor()
         
@@ -137,10 +136,9 @@ class RAGAgent:
                     days = int(prev_word)
         
         # Look for exact uppercase ticker matches
-        # First try to find any word that's already in all caps
         for word in words:
             if word.isupper() and len(word) >= 2:  # Only check words that are already uppercase
-                cursor.execute("SELECT 1 FROM Price_Data WHERE Ticker = ? LIMIT 1", (word,))
+                cursor.execute("SELECT 1 FROM Price_Data WHERE ticker = ? LIMIT 1", (word,))
                 if cursor.fetchone():
                     ticker = word
                     break
@@ -198,16 +196,42 @@ class RAGAgent:
 
     def fetch_fundamentals(self, query):
         cursor = self.conn.cursor()
-        # Extract ticker from the query (e.g., "META" from "Fundamental META")
-        ticker = query.split()[-1].strip().upper()
+        # Extract ticker from the query
+        words = query.split()
+        ticker = None
+        
+        # Look for uppercase ticker
+        for word in words:
+            if word.isupper() and len(word) >= 2:
+                # Check both cases since SQLite is case-sensitive
+                cursor.execute("""
+                    SELECT 1 FROM Fundamentals 
+                    WHERE (Ticker = ? OR Ticker = ?) 
+                    AND date = (SELECT MAX(date) FROM Fundamentals)
+                    LIMIT 1
+                """, (word, word.upper()))
+                if cursor.fetchone():
+                    ticker = word.upper()
+                    break
+        
+        if not ticker:
+            return "❌ Please include a stock symbol in ALL CAPS (e.g., AAPL, NVDA)"
         
         sql = """
-            SELECT Ticker, sector, recommendationKey, targetMeanPrice, 
-                   forwardPE, trailingPE, returnOnEquity, profitMargins
+            SELECT 
+                Ticker,
+                sector,
+                recommendationKey,
+                targetMeanPrice,
+                forwardPE,
+                trailingPE,
+                returnOnEquity,
+                profitMargins
             FROM Fundamentals
-            WHERE date = (SELECT MAX(date) FROM Fundamentals)
-            AND Ticker = ?
+            WHERE Ticker = ?
+            AND date = (SELECT MAX(date) FROM Fundamentals)
         """
+        
         cursor.execute(sql, (ticker,))
         results = cursor.fetchall()
         
@@ -218,63 +242,123 @@ class RAGAgent:
 
     def fetch_insider_transactions(self, query):
         cursor = self.conn.cursor()
-        ticker_match = re.search(r'\(([^)]+)\)', query)
-        ticker = ticker_match.group(1).upper() if ticker_match else None
+        # Extract ticker from query
+        words = query.split()
+        ticker = None
+        
+        # Look for uppercase ticker
+        for word in words:
+            if word.isupper() and len(word) >= 2:
+                cursor.execute("""
+                    SELECT 1 FROM Insider_Transactions it
+                    JOIN Executive_Ticker_Relationships etr ON it.transaction_id = etr.transaction_id
+                    WHERE etr.ticker = ?
+                    LIMIT 1
+                """, (word,))
+                if cursor.fetchone():
+                    ticker = word
+                    break
+        
+        if not ticker:
+            return "❌ Please include a stock symbol in ALL CAPS (e.g., AAPL, NVDA)"
         
         sql = """
-            SELECT transaction_date, ticker, executive, executive_title,
-                   acquisition_or_disposal, shares, share_price
-            FROM Insider_Transactions
-            WHERE transaction_date >= date('now', '-90 days')
+            SELECT 
+                it.transaction_date,
+                etr.ticker,
+                it.executive,
+                it.executive_title,
+                it.acquisition_or_disposal,
+                it.shares,
+                it.share_price
+            FROM Insider_Transactions it
+            JOIN Executive_Ticker_Relationships etr ON it.transaction_id = etr.transaction_id
+            WHERE etr.ticker = ?
+            AND it.transaction_date >= date('now', '-90 days')
+            ORDER BY it.transaction_date DESC
         """
-        if ticker:
-            sql += " AND ticker = ?"
-            cursor.execute(sql, (ticker,))
-        else:
-            cursor.execute(sql)
-        return self.format_results(cursor.fetchall(), "insider")
+        
+        cursor.execute(sql, (ticker,))
+        results = cursor.fetchall()
+        
+        if not results:
+            return f"No recent insider transactions found for {ticker}"
+            
+        return self.format_results(results, "insider")
 
     def fetch_options_activity(self, query):
         cursor = self.conn.cursor()
-        ticker_match = re.search(r'\(([^)]+)\)', query)
-        ticker = ticker_match.group(1).upper() if ticker_match else None
+        # Extract ticker from query
+        words = query.split()
+        ticker = None
+        
+        # Look for uppercase ticker
+        for word in words:
+            if word.isupper() and len(word) >= 2:
+                cursor.execute("""
+                    SELECT 1 FROM Options_Contracts 
+                    WHERE Symbol = ?
+                    LIMIT 1
+                """, (word,))
+                if cursor.fetchone():
+                    ticker = word
+                    break
+        
+        if not ticker:
+            return "❌ Please include a stock symbol in ALL CAPS (e.g., AAPL, NVDA)"
         
         sql = """
-            SELECT Symbol, Type, Strike, [Exp Date], Volume, [Open Int],
-                   [Vol/OI], IV, Delta
+            SELECT 
+                Symbol,
+                Type,
+                Strike,
+                [Exp Date],
+                Volume,
+                [Open Int],
+                [Vol/OI],
+                IV,
+                Delta
             FROM Options_Contracts
-            WHERE [Vol/OI] > 1.0  -- Filter for unusual activity
-            AND Volume > 100
+            WHERE Symbol = ?
+            ORDER BY [Exp Date] DESC
+            LIMIT 10
         """
-        if ticker:
-            sql += " AND Symbol = ?"
-            cursor.execute(sql, (ticker,))
-        else:
-            cursor.execute(sql + " LIMIT 10")
-        return self.format_results(cursor.fetchall(), "options")
+        
+        cursor.execute(sql, (ticker,))
+        results = cursor.fetchall()
+        
+        if not results:
+            return f"No options data found for {ticker}"
+            
+        return self.format_results(results, "options")
 
     def fetch_news(self, query):
         cursor = self.conn.cursor()
         
-        # Extract ticker and number of articles
+        # Extract ticker from query
         words = query.split()
-        ticker = words[-1].strip().upper()
+        ticker = None
+        
+        # Look for uppercase ticker
+        for word in words:
+            if word.isupper() and len(word) >= 2:
+                cursor.execute("""
+                    SELECT 1 FROM Article_Ticker_Relationships 
+                    WHERE ticker = ? LIMIT 1
+                """, (word,))
+                if cursor.fetchone():
+                    ticker = word
+                    break
+        
+        if not ticker:
+            return "❌ Please include a stock symbol in ALL CAPS (e.g., AAPL, NVDA)"
         
         # Look for number of articles requested
         num_articles = 5  # default
-        for i, word in enumerate(words):
+        for word in words:
             if word.isdigit():
                 num_articles = int(word)
                 break
-        
-        # First verify the tables and columns exist
-        cursor.execute("""
-            SELECT name FROM sqlite_master 
-            WHERE type='table' AND (name='articles' OR name='article_ticker_relationships')
-        """)
-        tables = cursor.fetchall()
-        if len(tables) < 2:
-            return f"Database schema error: Required tables not found"
         
         sql = """
             SELECT 
@@ -359,7 +443,11 @@ class RAGAgent:
 
     def validate_ticker(self, ticker):
         cursor = self.conn.cursor()
-        cursor.execute("SELECT 1 FROM Fundamentals WHERE Ticker = ?", (ticker,))
+        cursor.execute("""
+            SELECT 1 FROM Fundamentals 
+            WHERE Ticker = ? 
+            AND date = (SELECT MAX(date) FROM Fundamentals)
+        """, (ticker,))
         return cursor.fetchone() is not None
 
     def initialize_vector_store(self):
