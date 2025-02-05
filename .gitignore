@@ -7,3 +7,8 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Ignore large data files
+Data/PreProcessed/Agent_Project25.db
+Data/PreProcessed/combined_insider_transactions.csv
+Data/PreProcessed/executive_ticker_relationships.csv
