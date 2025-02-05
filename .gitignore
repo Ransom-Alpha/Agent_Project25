@@ -1,13 +1,35 @@
-# Ignore environment variables
+# Python Environment
+venv/
 .env
 .env/
-
-# Ignore Python cache files
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
+*.so
 
-# Ignore large data files
-Data/PreProcessed/Agent_Project25.db
-Data/PreProcessed/combined_insider_transactions.csv
-Data/PreProcessed/executive_ticker_relationships.csv
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Database and Large Data Files
+*.db
+*.sqlite
+*.sqlite3
+Data/PreProcessed/*.csv
+Data/PreProcessed/*.db
+
+# Keep essential data structure
+!Data/
+!Data/Fundamentals/
+!Data/InsiderTran/
+!Data/News/
+!Data/PreProcessed/
+!Data/Price/
+!Data/Unusual_Options/
+
+# Logs
+*.log
